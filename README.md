@@ -1,4 +1,4 @@
-# Ad Reader - Microsoft Edge Extension
+# World's Most Expensive and Slow Ad Blocker - Microsoft Edge Extension
 
 Ad Reader is an accessibility-focused browser extension designed to help users with visual impairments or reading difficulties understand the content of advertisements on web pages. It uses the power of Google's Gemini AI to analyze, describe, and overlay ads with clear, readable descriptions.
 

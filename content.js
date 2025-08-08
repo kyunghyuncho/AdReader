@@ -8,7 +8,7 @@
 function getUniqueSelector(el) {
     if (el.id) {
         // If the element has an ID, that's the most reliable selector.
-        return `#${el.id}`;
+        return `#${el.id.replace(/:/g, '\\:')}`; // Escape colons for CSS
     }
     // Fallback to a path from the body
     let path = '';
@@ -34,35 +34,90 @@ function getUniqueSelector(el) {
  * @returns {Array<{selector: string, html: string}>} An array of candidate ad objects.
  */
 function findPotentialAds() {
-    const candidates = [];
-    // A list of common keywords found in ad-related class names or IDs.
-    const adKeywords = ['ad', 'advert', 'sponsor', 'promo', 'banner', 'google_ads', 'doubleclick'];
-    
-    // Query for elements containing ad-related keywords in their attributes.
-    const query = adKeywords.map(kw => `[id*="${kw}"], [class*="${kw}"]`).join(', ');
-    
-    document.querySelectorAll(query).forEach(el => {
-        // Basic filtering to avoid capturing the whole page or tiny elements.
+    const candidates = new Map(); // Use a Map to automatically handle duplicates by selector.
+    const addCandidate = (el) => {
+        // Basic filtering to avoid capturing tiny or invisible elements.
         const rect = el.getBoundingClientRect();
         if (rect.height > 30 && rect.width > 30 && el.offsetParent !== null) {
-             const selector = getUniqueSelector(el);
-             candidates.push({ selector: selector, html: el.outerHTML });
+            const selector = getUniqueSelector(el);
+            if (!candidates.has(selector)) {
+                candidates.set(selector, { selector, html: el.outerHTML });
+            }
+        }
+    };
+
+    // An expanded list of common keywords in multiple languages.
+    const adKeywords = [
+        // English
+        'ad', 'advert', 'sponsor', 'promo', 'banner', 'google_ads', 'doubleclick', 
+        'ad-slot', 'ad-container', 'advertisement', 'sponsored', 'promotion', 'affiliate',
+        // Spanish
+        'anuncio', 'publicidad', 'patrocinado',
+        // French
+        'publicité', 'annonce', 'sponsorisé', 'pub',
+        // German
+        'werbung', 'anzeige', 'gesponsert',
+        // Portuguese
+        'anúncio', 'publicidade', 'patrocinado',
+        // Italian
+        'pubblicità', 'annuncio', 'sponsorizzato',
+        // Dutch
+        'advertentie', 'gesponsord',
+        // Japanese
+        '広告', // kōkoku
+        'スポンサー', // suponsā
+        // Chinese
+        '广告', // guǎnggào
+        '赞助', // zànzhù
+        // Korean
+        '광고', // gwanggo
+        // Russian
+        'реклама', // reklama
+        'спонсор', // sponsor
+        // Hindi
+        'विज्ञापन', // vigyapan
+        // Arabic
+        'إعلان' // iʻlān
+    ];
+    
+    // --- Detection Strategies ---
+
+    // 1. Keyword-based search in IDs and classes
+    const keywordQuery = adKeywords.map(kw => `[id*="${kw}"], [class*="${kw}"]`).join(', ');
+    document.querySelectorAll(keywordQuery).forEach(addCandidate);
+
+    // 2. Common data-ad attributes (strong signal)
+    document.querySelectorAll('[data-ad-client], [data-ad-slot], [data-ad-format], [data-ad-manager-id]').forEach(addCandidate);
+
+    // 3. Common iframe sources for ad networks
+    document.querySelectorAll('iframe').forEach(iframe => {
+        const src = iframe.src || '';
+        if (src.includes('googlesyndication') || src.includes('doubleclick') || src.includes('amazon-adsystem') || src.includes('adservice')) {
+            addCandidate(iframe);
         }
     });
 
-    // Also look for iframes from common ad networks.
-    document.querySelectorAll('iframe').forEach(iframe => {
-        const src = iframe.src || '';
-        if (src.includes('googlesyndication') || src.includes('doubleclick')) {
-            const selector = getUniqueSelector(iframe);
-            candidates.push({ selector: selector, html: iframe.outerHTML });
+    // 4. Structural analysis: Look for images inside links that open in a new tab.
+    document.querySelectorAll('a[target="_blank"]').forEach(link => {
+        if (link.querySelector('img')) {
+            addCandidate(link);
+        }
+    });
+
+    // 5. ARIA roles commonly used for ad sidebars and regions.
+    document.querySelectorAll('[role="complementary"], [role="region"][aria-label*="advert"], [role="banner"]').forEach(addCandidate);
+
+    // 6. Positional analysis: Look for sticky/fixed elements at the top or bottom.
+    document.querySelectorAll('div, section').forEach(el => {
+        const style = window.getComputedStyle(el);
+        if (style.position === 'fixed' || style.position === 'sticky') {
+            if (parseInt(style.bottom, 10) < 10 || parseInt(style.top, 10) < 10) {
+                addCandidate(el);
+            }
         }
     });
     
-    // Remove duplicates based on the selector
-    const uniqueCandidates = Array.from(new Map(candidates.map(item => [item.selector, item])).values());
-    
-    return uniqueCandidates;
+    return Array.from(candidates.values());
 }
 
 
@@ -119,12 +174,19 @@ function createOverlayForElement(element, description) {
         border: 2px dashed #ff5722;
         z-index: 99999;
         display: flex;
-        align-items: center;
-        justify-content: center;
         flex-direction: row;
-        gap: 15px;
         padding: 10px;
         box-sizing: border-box;
+    `;
+
+    // Create a container for the main content (speaker + description)
+    const mainContent = document.createElement('div');
+    mainContent.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        flex-grow: 1; /* This will take up most of the space */
+        overflow: hidden; /* Prevent text from pushing the layout */
     `;
 
     const speakerIcon = document.createElement('div');
@@ -137,28 +199,27 @@ function createOverlayForElement(element, description) {
     descriptionBox.className = 'ad-reader-description-box';
     descriptionBox.textContent = description;
     descriptionBox.style.cssText = `
-        position: static;
-        transform: none;
         color: #fff;
         background: none;
-        box-shadow: none;
-        border: none;
         text-align: left;
         font-size: 14px;
-        flex-grow: 1;
     `;
 
+    mainContent.appendChild(speakerIcon);
+    mainContent.appendChild(descriptionBox);
+
+    // Create the close button as a flex item
     const closeButton = document.createElement('div');
     closeButton.textContent = '×';
     closeButton.style.cssText = `
-        position: absolute;
-        top: 2px;
-        right: 8px;
         font-size: 24px;
         color: white;
         cursor: pointer;
         font-weight: bold;
         line-height: 1;
+        flex-shrink: 0; /* Prevent the button from being squished */
+        align-self: flex-start; /* Align to the top of the flex container */
+        padding-left: 10px; /* Add some space */
     `;
     
     closeButton.addEventListener('click', (e) => {
@@ -173,8 +234,7 @@ function createOverlayForElement(element, description) {
         setTimeout(() => { speakerIcon.style.transform = 'scale(1)'; }, 150);
     });
 
-    overlay.appendChild(speakerIcon);
-    overlay.appendChild(descriptionBox);
+    overlay.appendChild(mainContent);
     overlay.appendChild(closeButton);
     document.body.appendChild(overlay);
 }

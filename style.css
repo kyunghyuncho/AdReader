@@ -1,0 +1,117 @@
+/* General styles for popup and options pages */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: #f4f4f9;
+    color: #333;
+    margin: 0;
+    width: 280px;
+}
+
+.container {
+    padding: 15px;
+}
+
+h2 {
+    font-size: 1.2em;
+    color: #4a4a4a;
+    text-align: center;
+    margin-top: 0;
+    margin-bottom: 10px;
+}
+
+p {
+    font-size: 0.9em;
+    line-height: 1.4;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+/* Button styles */
+button {
+    width: 100%;
+    padding: 10px;
+    font-size: 1em;
+    color: #fff;
+    background-color: #0078d4;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+button:hover {
+    background-color: #005a9e;
+}
+
+button:disabled {
+    background-color: #a0a0a0;
+    cursor: not-allowed;
+}
+
+/* Form styles for options page */
+.form-group {
+    margin-bottom: 15px;
+}
+
+label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    font-size: 0.9em;
+}
+
+input[type="text"],
+input[type="password"] {
+    width: calc(100% - 20px);
+    padding: 8px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+/* Status message styles */
+#status {
+    text-align: center;
+    margin-top: 15px;
+    font-size: 0.9em;
+    color: #0078d4;
+    min-height: 20px;
+}
+
+/* Footer link for options */
+.footer {
+    text-align: center;
+    margin-top: 20px;
+    font-size: 0.8em;
+}
+
+.footer a {
+    color: #0078d4;
+    text-decoration: none;
+}
+
+.footer a:hover {
+    text-decoration: underline;
+}
+
+/* Styles for the description box in content.js */
+.ad-reader-description-box {
+    position: absolute;
+    bottom: 110%; /* Position above the icon */
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #f0f8ff; /* Light blue background for visibility */
+    color: #e5e3e3; /* Light text for high contrast */
+    padding: 10px;
+    border-radius: 5px;
+    font-size: 14px;
+    text-align: center;
+    width: max-content;
+    max-width: 300px;
+    z-index: 100000;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    border: 1px solid #ccc; /* Added a light border */
+}
+
+.ad-reader-speaker-icon:hover svg {
+    stroke: #ff5722; /* Change color on hover */
+}

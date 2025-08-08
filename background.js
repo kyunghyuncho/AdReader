@@ -19,50 +19,68 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "scanForAds") {
         (async () => {
             try {
-                // 1. Inject the content script to find potential ad elements first.
+                // FIX: Use request.tabId, as sender.tab is not available for messages from the popup.
+                const tabId = request.tabId; 
+                if (!tabId) {
+                    throw new Error("Could not get tab ID.");
+                }
+
+                // 1. Inject the content script.
                 await chrome.scripting.executeScript({
-                    target: { tabId: request.tabId },
+                    target: { tabId: tabId },
                     files: ['content.js']
                 });
 
-                // 2. Ask the content script to find and send back potential ad snippets.
-                const adCandidates = await chrome.tabs.sendMessage(request.tabId, {
-                    action: "findAdCandidates"
-                });
-
-                if (!adCandidates || adCandidates.length === 0) {
-                    sendResponse({ status: "success", count: 0 });
-                    return;
-                }
-
-                // 3. Get the API key from storage.
+                // 2. Get the API key from storage.
                 const { apiKey } = await chrome.storage.sync.get('apiKey');
                 if (!apiKey) {
                     sendResponse({ status: "error", message: "API key is not set. Please set it in the options." });
                     chrome.runtime.openOptionsPage();
                     return;
                 }
+                
+                // --- STAGE 1: IDENTIFY AD SELECTORS FROM SKELETON ---
+                // 3. Ask content script for the skeletonized HTML of the page.
+                const skeletonHtml = await chrome.tabs.sendMessage(tabId, { action: "getSkeletonHtml" });
+                if (!skeletonHtml) {
+                    sendResponse({ status: "success", count: 0 });
+                    return;
+                }
 
-                // 4. Analyze each candidate snippet with Gemini in parallel.
-                const analysisPromises = adCandidates.map(candidate =>
-                    analyzeAdSnippet(candidate.html, apiKey)
+                // 4. Send the skeleton to Gemini to get a list of likely ad selectors.
+                const adSelectors = await findAdSelectorsFromSkeleton(skeletonHtml, apiKey);
+                if (!adSelectors || adSelectors.length === 0) {
+                    sendResponse({ status: "success", count: 0 });
+                    return;
+                }
+
+                // --- STAGE 2: GET DESCRIPTIONS FOR IDENTIFIED ADS ---
+                // 5. Ask content script to get the full HTML for only the identified ad selectors.
+                const adSnippets = await chrome.tabs.sendMessage(tabId, {
+                    action: "getAdSnippets",
+                    selectors: adSelectors
+                });
+
+                // 6. Analyze each snippet with Gemini to get a description.
+                const analysisPromises = adSnippets.map(snippet =>
+                    analyzeAdSnippet(snippet.html, apiKey)
                 );
                 const results = await Promise.all(analysisPromises);
 
-                // 5. Filter out non-ads and format the data for the content script.
+                // 7. Format the final data for overlay creation.
                 const confirmedAds = [];
                 for (let i = 0; i < results.length; i++) {
                     if (results[i].isAd) {
                         confirmedAds.push({
-                            selector: adCandidates[i].selector,
+                            selector: adSnippets[i].selector,
                             description: results[i].description
                         });
                     }
                 }
 
-                // 6. Send the confirmed ads back to the content script to be overlaid.
+                // 8. Send confirmed ads to content script to create overlays.
                 if (confirmedAds.length > 0) {
-                    const response = await chrome.tabs.sendMessage(request.tabId, {
+                    const response = await chrome.tabs.sendMessage(tabId, {
                         action: "createOverlays",
                         data: { ads: confirmedAds }
                     });
@@ -80,57 +98,71 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
+/**
+ * STAGE 1: Asks Gemini to find likely ad selectors from a skeletonized HTML.
+ */
+async function findAdSelectorsFromSkeleton(skeletonHtml, apiKey) {
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+    const prompt = `
+        Analyze the following skeletonized HTML structure. Based on the element tags, class names, IDs, and structure, identify which elements are most likely to be advertisements.
+        Do not analyze the content, only the structure. Pay attention to common ad-related patterns like 'aside', 'iframe', and divs with names like 'ad-container', 'sidebar-ad', 'banner'.
+
+        Respond ONLY with a valid JSON object containing a single key "selectors", which is an array of CSS selector strings for each likely ad element.
+
+        Example Response:
+        {
+          "selectors": [
+            "#top-banner-ad-container",
+            "body > div.main-content > aside > div.ad-wrapper",
+            "iframe[src*='googlesyndication']"
+          ]
+        }
+
+        Here is the skeleton HTML:
+        \`\`\`html
+        ${skeletonHtml}
+        \`\`\`
+    `;
+    const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
+    try {
+        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (!response.ok) return [];
+        const result = await response.json();
+        const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) {
+            const cleanedText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+            const parsed = JSON.parse(cleanedText);
+            return parsed.selectors || [];
+        }
+    } catch (error) {
+        console.error("Error finding ad selectors from skeleton:", error);
+    }
+    return [];
+}
+
 
 /**
- * Calls the Gemini API to analyze a single HTML snippet.
- * @param {string} htmlSnippet - A small piece of HTML that might be an ad.
- * @param {string} apiKey - The user's Gemini API key.
- * @returns {Promise<{isAd: boolean, description: string}>} - A promise that resolves to an object indicating if the snippet is an ad and its description.
+ * STAGE 2: Asks Gemini to describe a single, specific HTML ad snippet.
  */
 async function analyzeAdSnippet(htmlSnippet, apiKey) {
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-
+    // FIX: Made model name consistent with the other function.
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
     const prompt = `
         Analyze the following HTML snippet. Your task is to determine if it is an advertisement.
-        - If it IS an advertisement, provide a concise but precise one-sentence description of what it's for. The description must be in the same language as the ad content.
-        - If it is NOT an advertisement (e.g., a navigation menu, a cookie consent banner, a related articles widget), simply state that it is not an ad.
+        - If it IS an advertisement, provide a concise, one-sentence description of what it's for. The description must be in the same language as the ad content.
+        - If it is NOT an advertisement, simply state that it is not an ad.
 
-        Respond ONLY with a valid JSON object with two keys:
-        1. "isAd": a boolean (true or false).
-        2. "description": a string. If isAd is false, this should be an empty string "".
-
-        Example Response (for an ad):
-        {
-          "isAd": true,
-          "description": "An advertisement for a new sports car."
-        }
-
-        Example Response (for non-ad):
-        {
-          "isAd": false,
-          "description": ""
-        }
+        Respond ONLY with a valid JSON object with two keys: "isAd" (boolean) and "description" (string). If isAd is false, description should be an empty string.
 
         Here is the HTML snippet to analyze:
         \`\`\`html
         ${htmlSnippet}
         \`\`\`
     `;
-
     const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
-
     try {
-        const response = await fetch(apiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-            console.error("API request failed:", response.status, await response.text());
-            return { isAd: false, description: "" }; // Gracefully fail
-        }
-
+        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (!response.ok) return { isAd: false, description: "" };
         const result = await response.json();
         const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
         if (text) {
@@ -138,9 +170,7 @@ async function analyzeAdSnippet(htmlSnippet, apiKey) {
             return JSON.parse(cleanedText);
         }
     } catch (error) {
-        console.error("Error parsing Gemini response:", error);
+        console.error("Error analyzing ad snippet:", error);
     }
-    
-    // Default fallback in case of any error
     return { isAd: false, description: "" };
 }

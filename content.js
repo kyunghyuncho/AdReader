@@ -1,133 +1,83 @@
 // This script is injected into the web page.
 
 /**
- * Generates a unique and robust CSS selector for a given element.
- * @param {HTMLElement} el The element to generate a selector for.
- * @returns {string} A CSS selector.
+ * Generates a unique CSS selector for a given element.
  */
 function getUniqueSelector(el) {
     if (el.id) {
-        // If the element has an ID, that's the most reliable selector.
-        return `#${el.id.replace(/:/g, '\\:')}`; // Escape colons for CSS
+        return `#${el.id.replace(/:/g, '\\:')}`;
     }
-    // Fallback to a path from the body
     let path = '';
     let currentEl = el;
     while (currentEl.parentElement) {
         const parent = currentEl.parentElement;
-        const children = Array.from(parent.children);
-        const index = children.indexOf(currentEl) + 1;
-        const tagName = currentEl.tagName.toLowerCase();
-        path = `> ${tagName}:nth-child(${index}) ${path}`;
-        
-        if (parent.tagName.toLowerCase() === 'body') {
-            break;
+        let index = 1;
+        let sibling = currentEl.previousElementSibling;
+        while(sibling) {
+            if (sibling.tagName === currentEl.tagName) {
+                index++;
+            }
+            sibling = sibling.previousElementSibling;
         }
+        const tagName = currentEl.tagName.toLowerCase();
+        path = `> ${tagName}:nth-of-type(${index}) ${path}`;
+        if (parent.tagName.toLowerCase() === 'body') break;
         currentEl = parent;
     }
     return `body ${path.trim()}`;
 }
 
-
 /**
- * Finds elements on the page that are likely to be ads based on heuristics.
- * @returns {Array<{selector: string, html: string}>} An array of candidate ad objects.
+ * Creates a "skeleton" of the document's HTML by removing bulky content.
+ * This preserves the structure for layout analysis by the AI.
+ * @returns {string} The skeletonized HTML as a string.
  */
-function findPotentialAds() {
-    const candidates = new Map(); // Use a Map to automatically handle duplicates by selector.
-    const addCandidate = (el) => {
-        // Basic filtering to avoid capturing tiny or invisible elements.
-        const rect = el.getBoundingClientRect();
-        if (rect.height > 30 && rect.width > 30 && el.offsetParent !== null) {
-            const selector = getUniqueSelector(el);
-            if (!candidates.has(selector)) {
-                candidates.set(selector, { selector, html: el.outerHTML });
-            }
-        }
-    };
+function createSkeletonHtml() {
+    const clonedBody = document.body.cloneNode(true);
 
-    // An expanded list of common keywords in multiple languages.
-    const adKeywords = [
-        // English
-        'ad', 'advert', 'sponsor', 'promo', 'banner', 'google_ads', 'doubleclick', 
-        'ad-slot', 'ad-container', 'advertisement', 'sponsored', 'promotion', 'affiliate',
-        // Spanish
-        'anuncio', 'publicidad', 'patrocinado',
-        // French
-        'publicité', 'annonce', 'sponsorisé', 'pub',
-        // German
-        'werbung', 'anzeige', 'gesponsert',
-        // Portuguese
-        'anúncio', 'publicidade', 'patrocinado',
-        // Italian
-        'pubblicità', 'annuncio', 'sponsorizzato',
-        // Dutch
-        'advertentie', 'gesponsord',
-        // Japanese
-        '広告', // kōkoku
-        'スポンサー', // suponsā
-        // Chinese
-        '广告', // guǎnggào
-        '赞助', // zànzhù
-        // Korean
-        '광고', // gwanggo
-        // Russian
-        'реклама', // reklama
-        'спонсор', // sponsor
-        // Hindi
-        'विज्ञापन', // vigyapan
-        // Arabic
-        'إعلان' // iʻlān
-    ];
-    
-    // --- Detection Strategies ---
+    // Remove scripts and styles as they are not needed for structural analysis
+    clonedBody.querySelectorAll('script, style, link[rel="stylesheet"]').forEach(el => el.remove());
 
-    // 1. Keyword-based search in IDs and classes
-    const keywordQuery = adKeywords.map(kw => `[id*="${kw}"], [class*="${kw}"]`).join(', ');
-    document.querySelectorAll(keywordQuery).forEach(addCandidate);
-
-    // 2. Common data-ad attributes (strong signal)
-    document.querySelectorAll('[data-ad-client], [data-ad-slot], [data-ad-format], [data-ad-manager-id]').forEach(addCandidate);
-
-    // 3. Common iframe sources for ad networks
-    document.querySelectorAll('iframe').forEach(iframe => {
-        const src = iframe.src || '';
-        if (src.includes('googlesyndication') || src.includes('doubleclick') || src.includes('amazon-adsystem') || src.includes('adservice')) {
-            addCandidate(iframe);
+    // Remove bulky text content but keep the tags
+    clonedBody.querySelectorAll('p, h1, h2, h3, h4, h5, h6, span, li, a, td, th').forEach(el => {
+        if (el.children.length === 0) { // Only clear text from leaf nodes
+            el.textContent = '';
         }
     });
 
-    // 4. Structural analysis: Look for images inside links that open in a new tab.
-    document.querySelectorAll('a[target="_blank"]').forEach(link => {
-        if (link.querySelector('img')) {
-            addCandidate(link);
-        }
-    });
-
-    // 5. ARIA roles commonly used for ad sidebars and regions.
-    document.querySelectorAll('[role="complementary"], [role="region"][aria-label*="advert"], [role="banner"]').forEach(addCandidate);
-
-    // 6. Positional analysis: Look for sticky/fixed elements at the top or bottom.
-    document.querySelectorAll('div, section').forEach(el => {
-        const style = window.getComputedStyle(el);
-        if (style.position === 'fixed' || style.position === 'sticky') {
-            if (parseInt(style.bottom, 10) < 10 || parseInt(style.top, 10) < 10) {
-                addCandidate(el);
-            }
-        }
+    // Remove image data but keep the img tags and their alts
+    clonedBody.querySelectorAll('img').forEach(img => {
+        img.removeAttribute('src');
+        img.removeAttribute('srcset');
     });
     
-    return Array.from(candidates.values());
+    // Remove video sources
+    clonedBody.querySelectorAll('video').forEach(vid => {
+        vid.removeAttribute('src');
+        vid.querySelectorAll('source').forEach(s => s.remove());
+    });
+
+    return clonedBody.outerHTML;
 }
-
 
 /**
  * Listener for messages from the background script.
  */
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === "findAdCandidates") {
-        const candidates = findPotentialAds();
-        sendResponse(candidates);
+    if (request.action === "getSkeletonHtml") {
+        sendResponse(createSkeletonHtml());
+    } 
+    else if (request.action === "getAdSnippets") {
+        const snippets = request.selectors.map(selector => {
+            try {
+                const el = document.querySelector(selector);
+                return el ? { selector, html: el.outerHTML } : null;
+            } catch (e) {
+                console.warn(`Ad Reader: Invalid selector from AI - "${selector}". Skipping.`);
+                return null;
+            }
+        }).filter(Boolean); // Filter out nulls if selector not found or invalid
+        sendResponse(snippets);
     }
     else if (request.action === "createOverlays") {
         clearExistingOverlays();
@@ -156,8 +106,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 /**
  * Creates a styled overlay for a given DOM element.
- * @param {HTMLElement} element - The ad element to overlay.
- * @param {string} description - The description of the ad.
  */
 function createOverlayForElement(element, description) {
     const rect = element.getBoundingClientRect();
@@ -179,48 +127,25 @@ function createOverlayForElement(element, description) {
         box-sizing: border-box;
     `;
 
-    // Create a container for the main content (speaker + description)
     const mainContent = document.createElement('div');
-    mainContent.style.cssText = `
-        display: flex;
-        align-items: center;
-        gap: 15px;
-        flex-grow: 1; /* This will take up most of the space */
-        overflow: hidden; /* Prevent text from pushing the layout */
-    `;
+    mainContent.style.cssText = `display: flex; align-items: center; gap: 15px; flex-grow: 1; overflow: hidden;`;
 
     const speakerIcon = document.createElement('div');
     speakerIcon.className = 'ad-reader-speaker-icon';
     speakerIcon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`;
-    speakerIcon.style.cursor = 'pointer';
-    speakerIcon.style.flexShrink = '0';
+    speakerIcon.style.cssText = `cursor: pointer; flex-shrink: 0;`;
 
     const descriptionBox = document.createElement('div');
     descriptionBox.className = 'ad-reader-description-box';
     descriptionBox.textContent = description;
-    descriptionBox.style.cssText = `
-        color: #fff;
-        background: none;
-        text-align: left;
-        font-size: 14px;
-    `;
+    descriptionBox.style.cssText = `color: #fff; background: none; text-align: left; font-size: 14px;`;
 
     mainContent.appendChild(speakerIcon);
     mainContent.appendChild(descriptionBox);
 
-    // Create the close button as a flex item
     const closeButton = document.createElement('div');
     closeButton.textContent = '×';
-    closeButton.style.cssText = `
-        font-size: 24px;
-        color: white;
-        cursor: pointer;
-        font-weight: bold;
-        line-height: 1;
-        flex-shrink: 0; /* Prevent the button from being squished */
-        align-self: flex-start; /* Align to the top of the flex container */
-        padding-left: 10px; /* Add some space */
-    `;
+    closeButton.style.cssText = `font-size: 24px; color: white; cursor: pointer; font-weight: bold; line-height: 1; flex-shrink: 0; align-self: flex-start; padding-left: 10px;`;
     
     closeButton.addEventListener('click', (e) => {
         e.stopPropagation();

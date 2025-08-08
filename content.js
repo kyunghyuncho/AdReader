@@ -47,6 +47,7 @@ function createOverlayForElement(element, description) {
     // The main overlay container
     const overlay = document.createElement('div');
     overlay.className = 'ad-reader-overlay';
+    // Updated styles for side-by-side layout
     overlay.style.cssText = `
         position: absolute;
         top: ${window.scrollY + rect.top}px;
@@ -59,6 +60,9 @@ function createOverlayForElement(element, description) {
         display: flex;
         align-items: center;
         justify-content: center;
+        flex-direction: row; /* Arrange items side-by-side */
+        gap: 15px; /* Add space between icon and text */
+        padding: 10px;
         box-sizing: border-box;
     `;
 
@@ -66,28 +70,68 @@ function createOverlayForElement(element, description) {
     const speakerIcon = document.createElement('div');
     speakerIcon.className = 'ad-reader-speaker-icon';
     speakerIcon.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
             <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
         </svg>
     `;
     speakerIcon.style.cursor = 'pointer';
+    speakerIcon.style.flexShrink = '0'; // Prevent icon from shrinking
 
-    // The description box (initially hidden)
+    // The description box, now always visible
     const descriptionBox = document.createElement('div');
     descriptionBox.className = 'ad-reader-description-box';
     descriptionBox.textContent = description;
-    descriptionBox.style.display = 'none'; // Hidden by default
+    // Override positioning from the CSS file to work with flexbox
+    descriptionBox.style.cssText = `
+        position: static;
+        transform: none;
+        bottom: auto;
+        left: auto;
+        color: #fff; /* Ensure text is white against the dark overlay */
+        background: none;
+        box-shadow: none;
+        border: none;
+        text-align: left;
+        font-size: 14px;
+        flex-grow: 1; /* Allow text to take up available space */
+    `;
 
-    // Event listener for the speaker icon
+    // The close button ('x')
+    const closeButton = document.createElement('div');
+    closeButton.textContent = '×'; // Using the multiplication sign for a clean 'x'
+    closeButton.style.cssText = `
+        position: absolute;
+        top: 2px;
+        right: 8px;
+        font-size: 24px;
+        color: white;
+        cursor: pointer;
+        font-weight: bold;
+        line-height: 1;
+    `;
+    
+    // Event listener for the close button
+    closeButton.addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevent other clicks from firing
+        overlay.remove(); // Remove the entire overlay
+    });
+
+    // Placeholder for future text-to-speech functionality
     speakerIcon.addEventListener('click', (e) => {
-        e.stopPropagation(); // Prevent click from bubbling up
-        const isVisible = descriptionBox.style.display === 'block';
-        descriptionBox.style.display = isVisible ? 'none' : 'block';
+        e.stopPropagation(); 
+        // TODO: Add text-to-speech logic here in the future.
+        console.log("Speaking ad:", description); 
+        // Add a visual cue that it was clicked
+        speakerIcon.style.transform = 'scale(1.1)';
+        setTimeout(() => {
+            speakerIcon.style.transform = 'scale(1)';
+        }, 150);
     });
 
     overlay.appendChild(speakerIcon);
     overlay.appendChild(descriptionBox);
+    overlay.appendChild(closeButton); // Add the close button to the overlay
     document.body.appendChild(overlay);
 }
 

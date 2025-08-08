@@ -9,12 +9,15 @@ const statusDiv = document.getElementById('status');
 function saveOptions() {
     const apiKey = apiKeyInput.value.trim();
     if (apiKey) {
+        // Disable the button and show a saving message for better user feedback
+        saveButton.disabled = true;
+        statusDiv.textContent = 'Saving...';
+
         // Use chrome.storage.sync to save the key. It will sync across devices.
         chrome.storage.sync.set({ apiKey: apiKey }, () => {
-            statusDiv.textContent = 'API Key saved successfully!';
-            setTimeout(() => {
-                statusDiv.textContent = '';
-            }, 2000); // Clear the message after 2 seconds
+            statusDiv.textContent = 'API Key saved! You can now close this page.';
+            // Re-enable the button after saving is complete
+            saveButton.disabled = false;
         });
     } else {
         statusDiv.textContent = 'Please enter a valid API key.';

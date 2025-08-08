@@ -79,21 +79,25 @@ async function analyzeHtmlWithGemini(html, apiKey) {
     const prompt = `
         Analyze the following HTML content. Your task is to identify all elements that are advertisements.
         For each advertisement you find, provide a robust CSS selector to locate it and a concise, one-sentence description of what the ad is for.
+        Usually each ad is relatively small and can be identified by its unique attributes or text.
+        All the advertisements in the page must be identified and described, as this is crucial for the user to understand what ads are present.
         The description should be easy to understand for someone with visual impairments.
-        
+        The description must be about the actual content of the ad, not just the element's text or attributes.
+        Crucially, the description must be written in the primary language used in the advertisement or the surrounding page content.
+
         Respond ONLY with a valid JSON object. The JSON object should have a single key "ads", which is an array of objects.
         Each object in the array must have two keys: "selector" (the CSS selector string) and "description" (the ad description string).
         
-        Example Response Format:
+        Example Response Format (if the page is in Spanish):
         {
           "ads": [
             {
               "selector": "#ad-banner-top",
-              "description": "An advertisement for a new car model."
+              "description": "Un anuncio para un nuevo modelo de coche."
             },
             {
               "selector": "div.sidebar-ad > a",
-              "description": "A promotion for a web hosting service with a discount."
+              "description": "Una promoción para un servicio de alojamiento web con descuento."
             }
           ]
         }
